@@ -1,0 +1,46 @@
+id: T1_cpu_saturation
+name: demo-service CPU 饱和
+description: |
+  demo-service 出现 CPU 压力，服务延迟升高。
+  Agent 需要诊断问题，并给出安全的缓解建议。
+
+environment:
+  type: k8s
+  namespace: aiops-t1
+  setup:
+    - type: kubectl_apply
+      path: deploy/demo-app/k8s.yaml
+  readiness:
+    - type: kubectl_rollout
+      resource: deployment/demo-service
+      namespace: aiops-t1
+      timeout_seconds: 120
+  cleanup:
+    mode: delete_namespace
+
+faults:
+  - id: cpu_stress
+    type: chaos_mesh.stress_cpu
+    target:
+      namespace: aiops-t1
+      selector:
+        app: demo-service
+    spec:
+      workers: 2
+      load: 100
+      duration: 5m
+
+agent_task:
+  instruction: |
+    你可以使用只读 kubectl 命令查看现场，例如 get、describe、logs、top。
+    禁止执行任何会修改集群状态的命令，例如 apply、delete、scale、patch、exec。
+    请诊断问题并给出修复建议，不要直接执行修复。
+
+solution_contract:
+  allowed_actions:
+    - kubectl_scale
+    - kubectl_set_resources
+    - kubectl_restart
+
+evaluation:
+  type: manual

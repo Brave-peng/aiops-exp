@@ -1,6 +1,6 @@
 # Demo App
 
-Minimal HTTP service for AIOps experiment testing.
+Minimal Python HTTP service for AIOps experiment testing.
 
 ## Endpoints
 
@@ -41,4 +41,3 @@ kubectl port-forward -n demo svc/demo-service 8080:80
 curl -sS localhost:8080/healthz
 curl -sS 'localhost:8080/work?ms=500'
 ```
-
