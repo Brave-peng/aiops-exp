@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-service
+  labels:
+    app: demo-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-service
+  template:
+    metadata:
+      labels:
+        app: demo-service
+    spec:
+      containers:
+        - name: demo-service
+          image: demo-app:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: SERVICE_NAME
+              value: demo-service
+            - name: DOWNSTREAM_URL
+              value: ""
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-service
+  labels:
+    app: demo-service
+spec:
+  type: ClusterIP
+  selector:
+    app: demo-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

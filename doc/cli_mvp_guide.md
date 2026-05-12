@@ -9,13 +9,14 @@ MVP 先做一个 Python 命令行工具：
 ```bash
 uv run aiops-bench load --scenario scenarios/T1_cpu_saturation.yaml
 uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml
-uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --agent http://localhost:8081
+uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --proposer mock --judge mock
+uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --proposer deepseek --judge deepseek
 ```
 
 第一阶段先保证：
 
 ```text
-读取 YAML -> 构造 Agent 输入 -> 调用 Agent -> 校验 action 白名单 -> 输出 result JSON
+读取 YAML -> 创建测试环境 -> 注入故障 -> 采集现场快照 -> 调用 proposer -> 调用 judge -> 输出结果文件 -> cleanup
 ```
 
 真实故障注入、真实 kubectl 动作和真实评估可以分阶段接入。
@@ -25,8 +26,9 @@ uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --agent http:
 ```text
 aiops_bench/cli.py             # CLI 入口
 aiops_bench/scenario.py        # YAML 加载和基础校验
-aiops_bench/agent.py           # mock agent / HTTP Agent 调用
-aiops_bench/actions.py         # action 白名单校验和 kubectl 命令渲染
+aiops_bench/agents/            # manual/mock/deepseek proposer
+aiops_bench/evaluators/        # manual/mock/deepseek judge
+aiops_bench/observability.py   # 只读 kubectl 现场快照
 scenarios/*.yaml               # 测试场景
 results/                       # 输出结果
 ```
@@ -149,34 +151,21 @@ chaos-daemon
 
 ### 4.3 部署一个 demo 服务
 
-先建 namespace：
+T1 场景使用 `aiops-t1` namespace 和 `deploy/demo-app/k8s.yaml`。先构建镜像并导入 k3d：
 
 ```bash
-kubectl create ns demo
+docker build -t demo-app:dev deploy/demo-app
+k3d image import demo-app:dev -c lab
 ```
 
-部署一个简单 HTTP 服务。后面项目里可以把它固化到 `deploy/k8s/demo-app.yaml`。
+手动部署和验证：
 
 ```bash
-kubectl create deployment demo-service \
-  -n demo \
-  --image=nginx:1.27 \
-  --replicas=1
-
-kubectl expose deployment demo-service \
-  -n demo \
-  --port=80 \
-  --target-port=80
-
-kubectl get pod -n demo -l app=demo-service
-kubectl get svc -n demo
-```
-
-验证服务：
-
-```bash
-kubectl run curl -n demo --rm -it --image=curlimages/curl -- \
-  curl -sS http://demo-service.demo.svc.cluster.local/
+kubectl create ns aiops-t1
+kubectl apply -n aiops-t1 -f deploy/demo-app/k8s.yaml
+kubectl rollout status deployment/demo-service -n aiops-t1 --timeout=120s
+kubectl get pod -n aiops-t1 -l app=demo-service
+kubectl get svc -n aiops-t1
 ```
 
 ### 4.4 手动注入 CPU 故障
@@ -199,7 +188,7 @@ spec:
   mode: one
   selector:
     namespaces:
-      - demo
+      - aiops-t1
     labelSelectors:
       app: demo-service
   stressors:
@@ -220,8 +209,8 @@ kubectl describe stresschaos demo-cpu-stress -n chaos-mesh
 观察目标 Pod：
 
 ```bash
-kubectl top pod -n demo
-kubectl get pod -n demo -w
+kubectl top pod -n aiops-t1
+kubectl get pod -n aiops-t1 -w
 ```
 
 如果 `kubectl top` 不可用，说明 metrics-server 没装；这不影响先验证 CRD 创建和删除。
@@ -236,9 +225,9 @@ kubectl get stresschaos -n chaos-mesh
 确认目标服务还活着：
 
 ```bash
-kubectl get pod -n demo -l app=demo-service
-kubectl run curl -n demo --rm -it --image=curlimages/curl -- \
-  curl -sS http://demo-service.demo.svc.cluster.local/
+kubectl get pod -n aiops-t1 -l app=demo-service
+kubectl run curl -n aiops-t1 --rm -it --image=curlimages/curl -- \
+  curl -sS http://demo-service.aiops-t1.svc.cluster.local/
 ```
 
 ### 4.6 手动模拟 Agent 动作
@@ -246,19 +235,45 @@ kubectl run curl -n demo --rm -it --image=curlimages/curl -- \
 先模拟 T4，副本数为 0：
 
 ```bash
-kubectl scale deployment/demo-service -n demo --replicas=0
-kubectl get deploy demo-service -n demo
+kubectl scale deployment/demo-service -n aiops-t1 --replicas=0
+kubectl get deploy demo-service -n aiops-t1
 ```
 
 再模拟 Agent 修复动作：
 
 ```bash
-kubectl scale deployment/demo-service -n demo --replicas=1
-kubectl rollout status deployment/demo-service -n demo
+kubectl scale deployment/demo-service -n aiops-t1 --replicas=1
+kubectl rollout status deployment/demo-service -n aiops-t1
 ```
 
 这一步对应未来 CLI 的 `kubectl_scale` executor。
 
+### 4.7 CLI 真实运行
+
+确认镜像和 Chaos Mesh 准备好后，直接运行 T1：
+
+```bash
+uv run aiops-bench load --scenario scenarios/T1_cpu_saturation.yaml
+uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --proposer mock --judge mock
+```
+
+运行结束后会写入 `results/T1_cpu_saturation/<run_id>/`，并清理 `StressChaos` 和 `aiops-t1` namespace。
+如果故障没有真实生效，CLI 会把本次运行标记为 `invalid`，并跳过 proposer 和 judge。`StressChaos` 在 k3d-in-Docker 环境里可能遇到 cgroup 路径不匹配，例如 `cgroups: cgroup deleted`。
+
+结果目录包含：
+
+```text
+scenario.yaml
+agent_prompt.md
+observations.json
+observations.md
+proposal.json
+evaluation_prompt.md
+evaluation.json
+cleanup.json
+run.json
+```
+
 ## 5. 当前建议
 
-先做 `load` 和 fake `run`，不要一开始就接 Chaos Mesh client-go。等 CLI 主流程稳定后，再把手动验证过的 `kubectl apply/delete StressChaos` 改成代码实现。
+当前 CLI 已经把手动验证过的 `kubectl apply/delete StressChaos` 接入 T1 场景，并支持 `manual`、`mock`、`deepseek` 三类 proposer/judge 组合。后续再扩展真实修复执行器和更多场景。

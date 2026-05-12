@@ -70,5 +70,5 @@ def pending_manual_proposal() -> dict[str, Any]:
     """返回 manual 模式的占位结果。"""
     return {
         "status": "pending",
-        "message": "manual 模式只生成 agent_prompt.md，请人工获取 Agent 建议。",
+        "message": "manual 模式已生成 agent_prompt.md，请人工获取 Agent 建议。",
     }

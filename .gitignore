@@ -3,7 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
-results/
+/results/
 .vscode/
 *.egg-info/
 build/

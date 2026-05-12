@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Optional
 from typing import Annotated
 from typing import Any
 
@@ -27,11 +28,13 @@ def load_command(
 @app.command("run")
 def run_command(
     scenario: Annotated[Path, typer.Option("--scenario", "-s", help="场景 YAML 路径")],
-    agent: Annotated[str, typer.Option("--agent", "-a", help="'manual' 或 'mock'")] = "manual",
+    agent: Annotated[Optional[str], typer.Option("--agent", "-a", help="兼容旧参数；未指定 --proposer 时作为 proposer 使用")] = None,
+    proposer: Annotated[Optional[str], typer.Option("--proposer", help="'manual'、'mock' 或 'deepseek'")] = None,
+    judge: Annotated[Optional[str], typer.Option("--judge", help="'manual'、'mock' 或 'deepseek'；默认使用 scenario.evaluation.type")] = None,
     results_root: Annotated[Path, typer.Option("--results-root", help="结果输出目录")] = Path("results"),
 ) -> None:
     """用一个 Agent 运行单个场景。"""
-    result = run_scenario(scenario, agent=agent, results_root=results_root)
+    result = run_scenario(scenario, agent=agent, proposer=proposer, judge=judge, results_root=results_root)
     print_json(result)
 
 
