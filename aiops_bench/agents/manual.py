@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from aiops_bench.actions import render_action_contract
+
 
 def build_agent_prompt(scenario: dict[str, Any]) -> str:
     """根据场景生成给 Agent 的作答提示词。"""
@@ -46,9 +48,7 @@ def build_agent_prompt(scenario: dict[str, Any]) -> str:
         [
             "",
             "## 动作参数契约",
-            "- kubectl_scale.params：namespace、deployment、replicas",
-            "- kubectl_set_resources.params：namespace、deployment、container，以及 requests 或 limits 至少一个",
-            "- kubectl_restart.params：namespace、deployment",
+            render_action_contract(allowed_actions),
             "",
             "## 建议输出格式",
             "请返回 JSON，结构如下：",
