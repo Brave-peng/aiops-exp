@@ -214,7 +214,7 @@ def run_scenario(
                 "errors": cleanup_errors,
             }
             if summary is not None:
-                summary["cleanup_status"] = "completed" if not cleanup_errors else "failed"
+                summary["cleanup_status"] = summarize_cleanup_status(cleanup_summary)
                 summary["cleanup"] = cleanup_summary
                 write_json(
                     run_dir / "run.json",
@@ -232,6 +232,19 @@ def run_scenario(
                     observations_markdown=observations_markdown,
                 )
             write_json(run_dir / "cleanup.json", cleanup_summary)
+
+
+def summarize_cleanup_status(cleanup_summary: dict[str, Any]) -> str:
+    """汇总 cleanup 状态，避免异步删除未完成时误报 completed。"""
+    if cleanup_summary.get("errors"):
+        return "failed"
+    environment = cleanup_summary.get("environment") or {}
+    faults = cleanup_summary.get("faults") or []
+    if environment.get("status") == "deleted" and all(fault.get("status") == "deleted" for fault in faults):
+        return "completed"
+    if environment.get("status") == "delete_requested":
+        return "delete_requested"
+    return "partial"
 
 
 def validate_participants(proposer: str, judge: str) -> None:

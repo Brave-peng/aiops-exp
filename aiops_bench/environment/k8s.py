@@ -37,17 +37,28 @@ def cleanup_environment(environment: dict[str, Any]) -> dict[str, Any]:
             "message": f"unsupported cleanup mode: {mode}",
         }
 
-    result = run_kubectl(
+    delete_result = run_kubectl(
         ["delete", "namespace", namespace, "--ignore-not-found=true", "--wait=false"],
         check=False,
     )
+    wait_result = run_kubectl(
+        ["wait", "--for=delete", f"namespace/{namespace}", "--timeout=120s"],
+        check=False,
+    )
+    status = "deleted" if delete_result["returncode"] == 0 and wait_result["returncode"] == 0 else "delete_requested"
     return {
         "type": environment["type"],
         "namespace": namespace,
-        "status": "deleted" if result["returncode"] == 0 else "failed",
-        "command": result["command"],
-        "stdout": result["stdout"],
-        "stderr": result["stderr"],
+        "status": status,
+        "command": delete_result["command"],
+        "stdout": delete_result["stdout"],
+        "stderr": delete_result["stderr"],
+        "wait": {
+            "command": wait_result["command"],
+            "returncode": wait_result["returncode"],
+            "stdout": wait_result["stdout"],
+            "stderr": wait_result["stderr"],
+        },
     }
 
 

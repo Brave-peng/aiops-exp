@@ -198,6 +198,8 @@ def cleanup_status_text(cleanup: dict[str, Any]) -> str:
     faults = cleanup.get("faults") or []
     if environment.get("status") == "deleted" and all(fault.get("status") == "deleted" for fault in faults):
         return "已完成"
+    if environment.get("status") == "delete_requested":
+        return "已请求删除，仍在等待完成"
     return "部分完成"
 
 

@@ -76,7 +76,7 @@ def print_run_summary(result: dict[str, Any]) -> None:
 
     environment = result.get("environment") or {}
     faults = result.get("faults") or []
-    cleanup_status = result.get("cleanup_status", "unknown")
+    cleanup_status = format_status(result.get("cleanup_status", "unknown"))
 
     print(f"{verdict} {result.get('scenario_id', '')}")
     print(f"运行目录：{result.get('run_dir', '')}")
@@ -96,6 +96,18 @@ def summarize_faults(faults: list[dict[str, Any]]) -> str:
     if not faults:
         return "none"
     return ", ".join(f"{fault.get('id', '')}={fault.get('status', '')}" for fault in faults)
+
+
+def format_status(status: Any) -> str:
+    """把内部状态转换为 CLI 中文状态。"""
+    mapping = {
+        "completed": "completed",
+        "delete_requested": "已请求删除",
+        "failed": "failed",
+        "partial": "partial",
+        "unknown": "unknown",
+    }
+    return mapping.get(status, str(status))
 
 
 def main() -> None:
