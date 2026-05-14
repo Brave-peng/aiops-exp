@@ -45,6 +45,11 @@ def build_agent_prompt(scenario: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## 动作参数契约",
+            "- kubectl_scale.params：namespace、deployment、replicas",
+            "- kubectl_set_resources.params：namespace、deployment、container，以及 requests 或 limits 至少一个",
+            "- kubectl_restart.params：namespace、deployment",
+            "",
             "## 建议输出格式",
             "请返回 JSON，结构如下：",
             "",
@@ -70,5 +75,5 @@ def pending_manual_proposal() -> dict[str, Any]:
     """返回 manual 模式的占位结果。"""
     return {
         "status": "pending",
-        "message": "manual 模式已生成 agent_prompt.md，请人工获取 Agent 建议。",
+        "message": "manual 模式已在 report.md 和 run.json 中生成提示词，请人工获取 Agent 建议。",
     }

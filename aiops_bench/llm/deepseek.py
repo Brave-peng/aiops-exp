@@ -9,6 +9,7 @@ from typing import Any
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-v4-pro"
+DEFAULT_TIMEOUT_SECONDS = 120
 
 
 class DeepSeekError(RuntimeError):
@@ -19,24 +20,28 @@ def chat_json(
     *,
     system_prompt: str,
     user_prompt: str,
-    model: str = DEFAULT_MODEL,
-    base_url: str = DEFAULT_BASE_URL,
-    timeout_seconds: int = 60,
+    model: str | None = None,
+    base_url: str | None = None,
+    timeout_seconds: int | None = None,
+    temperature: float = 0.1,
 ) -> dict[str, Any]:
     """调用 DeepSeek Chat Completions API，并解析 JSON object 响应。"""
     api_key = _read_api_key()
+    selected_model = model or read_model()
+    selected_base_url = base_url or read_base_url()
+    selected_timeout = timeout_seconds or read_timeout_seconds()
     payload = {
-        "model": model,
+        "model": selected_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0.1,
+        "temperature": temperature,
         "response_format": {"type": "json_object"},
     }
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
-        f"{base_url.rstrip('/')}/chat/completions",
+        f"{selected_base_url.rstrip('/')}/chat/completions",
         data=data,
         method="POST",
         headers={
@@ -46,7 +51,7 @@ def chat_json(
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        with urllib.request.urlopen(request, timeout=selected_timeout) as response:
             body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -68,6 +73,45 @@ def chat_json(
     if not isinstance(parsed, dict):
         raise DeepSeekError("DeepSeek JSON response must be an object")
     return parsed
+
+
+def build_agent_metadata(role: str, model: str | None = None) -> dict[str, Any]:
+    """构造写入结果文件的 AI Agent 元数据。"""
+    return {
+        "role": role,
+        "provider": "deepseek",
+        "model": model or read_model(),
+        "base_url": read_base_url(),
+    }
+
+
+def read_model(specific_env_name: str | None = None) -> str:
+    """读取模型名，允许 proposer/judge 分别覆盖。"""
+    names = []
+    if specific_env_name:
+        names.append(specific_env_name)
+    names.extend(["AIOPS_DEEPSEEK_MODEL", "DEEPSEEK_MODEL"])
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return DEFAULT_MODEL
+
+
+def read_base_url() -> str:
+    """读取 DeepSeek OpenAI-compatible base_url。"""
+    return os.environ.get("DEEPSEEK_BASE_URL") or os.environ.get("AIOPS_DEEPSEEK_BASE_URL") or DEFAULT_BASE_URL
+
+
+def read_timeout_seconds() -> int:
+    """读取 API 超时时间。"""
+    value = os.environ.get("AIOPS_DEEPSEEK_TIMEOUT_SECONDS") or os.environ.get("DEEPSEEK_TIMEOUT_SECONDS")
+    if not value:
+        return DEFAULT_TIMEOUT_SECONDS
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise DeepSeekError("DeepSeek timeout must be an integer") from exc
 
 
 def _read_api_key() -> str:

@@ -49,6 +49,7 @@ def build_observation_summary(namespace: str, fault_handles: list[dict[str, Any]
                 "name": handle.get("name"),
                 "namespace": handle.get("namespace"),
                 "status": handle.get("status"),
+                "status_reason": handle.get("verification", {}).get("status_reason", ""),
                 "failure_reason": handle.get("verification", {}).get("failure_reason", ""),
                 "conditions": handle.get("verification", {}).get("conditions", {}),
                 "records": handle.get("verification", {}).get("records", []),
@@ -61,11 +62,11 @@ def build_observation_summary(namespace: str, fault_handles: list[dict[str, Any]
 def render_observations_markdown(observations: dict[str, Any]) -> str:
     """把现场快照渲染为人可读 Markdown。"""
     lines = [
-        "# Kubernetes Observations",
+        "# Kubernetes 观测",
         "",
         f"- namespace: `{observations.get('namespace', '')}`",
         "",
-        "## Summary",
+        "## 摘要",
         "",
     ]
 
@@ -74,11 +75,12 @@ def render_observations_markdown(observations: dict[str, Any]) -> str:
         for fault in faults:
             lines.extend(
                 [
-                    f"### Fault `{fault.get('id', '')}`",
+                    f"### 故障 `{fault.get('id', '')}`",
                     "",
                     f"- type: `{fault.get('type', '')}`",
                     f"- resource: `{fault.get('namespace', '')}/{fault.get('name', '')}`",
                     f"- status: `{fault.get('status', '')}`",
+                    f"- status_reason: {trim_text(fault.get('status_reason') or '<none>', 600)}",
                     f"- failure_reason: {trim_text(fault.get('failure_reason') or '<none>', 600)}",
                     f"- conditions: `{fault.get('conditions', {})}`",
                     "",
@@ -86,7 +88,7 @@ def render_observations_markdown(observations: dict[str, Any]) -> str:
             )
             records = fault.get("records", [])
             if records:
-                lines.extend(["#### Container Records", ""])
+                lines.extend(["#### 容器记录", ""])
                 for record in records:
                     lines.extend(
                         [
@@ -107,9 +109,9 @@ def render_observations_markdown(observations: dict[str, Any]) -> str:
                             lines.append(f"  - {trim_text(event.get('message', ''), 500)}")
                     lines.append("")
     else:
-        lines.extend(["No fault summary was collected.", ""])
+        lines.extend(["未采集到故障摘要。", ""])
 
-    lines.extend(["## Command Outputs", ""])
+    lines.extend(["## 命令输出", ""])
     for item in observations.get("commands", []):
         command = " ".join(item["command"])
         output = trim_command_output(item.get("stdout") or item.get("stderr") or "<empty>")

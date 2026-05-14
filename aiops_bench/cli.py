@@ -29,13 +29,25 @@ def load_command(
 def run_command(
     scenario: Annotated[Path, typer.Option("--scenario", "-s", help="场景 YAML 路径")],
     agent: Annotated[Optional[str], typer.Option("--agent", "-a", help="兼容旧参数；未指定 --proposer 时作为 proposer 使用")] = None,
-    proposer: Annotated[Optional[str], typer.Option("--proposer", help="'manual'、'mock' 或 'deepseek'")] = None,
-    judge: Annotated[Optional[str], typer.Option("--judge", help="'manual'、'mock' 或 'deepseek'；默认使用 scenario.evaluation.type")] = None,
+    proposer: Annotated[Optional[str], typer.Option("--proposer", help="'manual' 或 'deepseek'")] = None,
+    judge: Annotated[Optional[str], typer.Option("--judge", help="'manual' 或 'deepseek'；默认使用 scenario.evaluation.type")] = None,
+    ai: Annotated[bool, typer.Option("--ai", help="同时启用 AI 建议 Agent 和 AI 评估 Agent")] = False,
     results_root: Annotated[Path, typer.Option("--results-root", help="结果输出目录")] = Path("results"),
 ) -> None:
     """用一个 Agent 运行单个场景。"""
-    result = run_scenario(scenario, agent=agent, proposer=proposer, judge=judge, results_root=results_root)
-    print_json(result)
+    try:
+        result = run_scenario(
+            scenario,
+            agent=agent,
+            proposer=proposer,
+            judge=judge,
+            results_root=results_root,
+            ai=ai,
+        )
+    except ValueError as exc:
+        typer.echo(f"参数错误：{exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    print_run_summary(result)
 
 
 def print_json(data: Any) -> None:
@@ -45,6 +57,45 @@ def print_json(data: Any) -> None:
         data: 要打印的数据。
     """
     print(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def print_run_summary(result: dict[str, Any]) -> None:
+    """打印中文优先的运行摘要。"""
+    evaluation_status = result.get("evaluation_status")
+    run_status = result.get("run_status")
+    if run_status == "completed" and evaluation_status == "passed":
+        verdict = "通过"
+    elif run_status == "completed" and evaluation_status == "pending":
+        verdict = "已完成，等待人工评估"
+    elif run_status == "invalid":
+        verdict = "无效运行"
+    elif run_status == "failed" or evaluation_status == "failed":
+        verdict = "失败"
+    else:
+        verdict = str(run_status)
+
+    environment = result.get("environment") or {}
+    faults = result.get("faults") or []
+    cleanup_status = result.get("cleanup_status", "unknown")
+
+    print(f"{verdict} {result.get('scenario_id', '')}")
+    print(f"运行目录：{result.get('run_dir', '')}")
+    print("")
+    print(f"环境：{environment.get('status', 'unknown')}")
+    print(f"故障：{summarize_faults(faults)}")
+    print(f"观测：{result.get('observations_status', 'unknown')}")
+    print(f"建议：{result.get('proposal_status', 'unknown')}")
+    print(f"评估：{evaluation_status}")
+    print(f"清理：{cleanup_status}")
+    print("")
+    print("报告：report.md")
+
+
+def summarize_faults(faults: list[dict[str, Any]]) -> str:
+    """汇总故障状态。"""
+    if not faults:
+        return "none"
+    return ", ".join(f"{fault.get('id', '')}={fault.get('status', '')}" for fault in faults)
 
 
 def main() -> None:

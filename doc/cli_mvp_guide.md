@@ -9,8 +9,7 @@ MVP 先做一个 Python 命令行工具：
 ```bash
 uv run aiops-bench load --scenario scenarios/T1_cpu_saturation.yaml
 uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml
-uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --proposer mock --judge mock
-uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --proposer deepseek --judge deepseek
+uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --ai
 ```
 
 第一阶段先保证：
@@ -26,8 +25,8 @@ uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --proposer de
 ```text
 aiops_bench/cli.py             # CLI 入口
 aiops_bench/scenario.py        # YAML 加载和基础校验
-aiops_bench/agents/            # manual/mock/deepseek proposer
-aiops_bench/evaluators/        # manual/mock/deepseek judge
+aiops_bench/agents/            # manual/deepseek proposer
+aiops_bench/evaluators/        # manual/deepseek judge
 aiops_bench/observability.py   # 只读 kubectl 现场快照
 scenarios/*.yaml               # 测试场景
 results/                       # 输出结果
@@ -49,9 +48,9 @@ uv run aiops-bench load --scenario scenarios/T1_cpu_saturation.yaml
 
 能打印解析后的 JSON 即可。
 
-### Step 2: fake `run`
+### Step 2: manual `run`
 
-先不碰真实故障注入。内置 mock agent 返回一个 `kubectl_scale` action，CLI 校验白名单并渲染 kubectl 命令。默认 dry-run，不执行。
+先不碰真实故障注入。manual 模式生成提示词和待人工处理的结果，用于验证 CLI 输出格式。
 
 验收：
 
@@ -254,7 +253,7 @@ kubectl rollout status deployment/demo-service -n aiops-t1
 
 ```bash
 uv run aiops-bench load --scenario scenarios/T1_cpu_saturation.yaml
-uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --proposer mock --judge mock
+uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml
 ```
 
 运行结束后会写入 `results/T1_cpu_saturation/<run_id>/`，并清理 `StressChaos` 和 `aiops-t1` namespace。
@@ -264,16 +263,12 @@ uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --proposer mo
 
 ```text
 scenario.yaml
-agent_prompt.md
 observations.json
-observations.md
-proposal.json
-evaluation_prompt.md
-evaluation.json
-cleanup.json
+report.md
 run.json
+cleanup.json
 ```
 
 ## 5. 当前建议
 
-当前 CLI 已经把手动验证过的 `kubectl apply/delete StressChaos` 接入 T1 场景，并支持 `manual`、`mock`、`deepseek` 三类 proposer/judge 组合。后续再扩展真实修复执行器和更多场景。
+当前 CLI 已经把手动验证过的 `kubectl apply/delete StressChaos` 接入 T1 场景，并支持 `manual`、`deepseek` 两类 proposer/judge 组合。后续再扩展真实修复执行器和更多场景。

@@ -5,14 +5,12 @@ from typing import Any
 
 from aiops_bench.agents.deepseek import build_deepseek_proposal_prompt, solve_with_deepseek_agent
 from aiops_bench.agents.manual import build_agent_prompt, pending_manual_proposal
-from aiops_bench.agents.mock import solve_with_mock_agent
 from aiops_bench.environment.k8s import cleanup_environment, setup_environment
 from aiops_bench.evaluators.deepseek import build_evaluation_prompt, evaluate_deepseek
 from aiops_bench.evaluators.manual import evaluate_manual
-from aiops_bench.evaluators.mock import evaluate_mock
 from aiops_bench.faults.chaos_mesh import cleanup_faults, inject_faults
 from aiops_bench.observability import collect_observations, render_observations_markdown
-from aiops_bench.results.writer import create_run_dir, write_json, write_run_files
+from aiops_bench.results.writer import build_run_artifact, create_run_dir, write_json, write_report, write_run_files
 from aiops_bench.scenario import load_scenario
 
 
@@ -22,19 +20,31 @@ def run_scenario(
     proposer: str | None = None,
     judge: str | None = None,
     results_root: str | Path = "results",
+    ai: bool = False,
 ) -> dict[str, Any]:
     """运行一个场景。"""
     scenario = load_scenario(scenario_path)
-    proposer_name = proposer or agent or "manual"
-    judge_name = judge or scenario["evaluation"]["type"]
+    proposer_name, judge_name = resolve_participants(
+        scenario,
+        agent=agent,
+        proposer=proposer,
+        judge=judge,
+        ai=ai,
+    )
+    validate_participants(proposer_name, judge_name)
     run_dir = create_run_dir(scenario["id"], results_root)
 
     environment_result: dict[str, Any] | None = None
     fault_handles: list[dict[str, Any]] = []
     observations: dict[str, Any] = {"status": "not_collected", "commands": []}
-    observations_markdown = "# Kubernetes Observations\n\nNo observations were collected.\n"
+    observations_markdown = "# Kubernetes 观测\n\n未采集观测。\n"
     fault_cleanup: list[dict[str, Any]] = []
     environment_cleanup: dict[str, Any] | None = None
+    agent_prompt = ""
+    evaluation_prompt = ""
+    proposal: dict[str, Any] = {}
+    evaluation: dict[str, Any] = {}
+    summary: dict[str, Any] | None = None
 
     try:
         environment_result = setup_environment(scenario["environment"])
@@ -168,6 +178,12 @@ def run_scenario(
         )
         return summary
     except Exception as exc:
+        proposal = failed_result(exc)
+        evaluation = {
+            "type": "skipped",
+            "status": "skipped",
+            "message": "setup or fault injection failed",
+        }
         summary = build_setup_failed_summary(
             scenario,
             run_dir,
@@ -197,7 +213,51 @@ def run_scenario(
                 "environment": environment_cleanup,
                 "errors": cleanup_errors,
             }
+            if summary is not None:
+                summary["cleanup_status"] = "completed" if not cleanup_errors else "failed"
+                summary["cleanup"] = cleanup_summary
+                write_json(
+                    run_dir / "run.json",
+                    build_run_artifact(summary, agent_prompt, evaluation_prompt, proposal, evaluation),
+                )
+                write_report(
+                    run_dir,
+                    scenario,
+                    summary,
+                    proposal,
+                    evaluation,
+                    observations,
+                    cleanup=cleanup_summary,
+                    agent_prompt=agent_prompt,
+                    observations_markdown=observations_markdown,
+                )
             write_json(run_dir / "cleanup.json", cleanup_summary)
+
+
+def validate_participants(proposer: str, judge: str) -> None:
+    """校验 proposer/judge；mock 已停用，避免生成伪造通过结果。"""
+    allowed = {"manual", "deepseek"}
+    disabled = {"mock"}
+    if proposer in disabled or judge in disabled:
+        raise ValueError("mock proposer/judge 已停用，请使用 'manual' 或 'deepseek'")
+    if proposer not in allowed:
+        raise ValueError("proposer must be 'manual' or 'deepseek'")
+    if judge not in allowed:
+        raise ValueError("judge must be 'manual' or 'deepseek'")
+
+
+def resolve_participants(
+    scenario: dict[str, Any],
+    *,
+    agent: str | None,
+    proposer: str | None,
+    judge: str | None,
+    ai: bool,
+) -> tuple[str, str]:
+    """解析 proposer/judge；--ai 同时启用两个 AI Agent。"""
+    if ai:
+        return proposer or "deepseek", judge or "deepseek"
+    return proposer or agent or "manual", judge or scenario["evaluation"]["type"]
 
 
 def build_proposal_prompt(
@@ -208,9 +268,9 @@ def build_proposal_prompt(
     """构造 proposer prompt。"""
     if proposer == "deepseek":
         return build_deepseek_proposal_prompt(scenario, observations)
-    if proposer in {"manual", "mock"}:
+    if proposer == "manual":
         return build_agent_prompt(scenario)
-    raise ValueError("proposer must be 'manual', 'mock', or 'deepseek'")
+    raise ValueError("proposer must be 'manual' or 'deepseek'")
 
 
 def propose(
@@ -221,11 +281,9 @@ def propose(
     """调用 proposer。"""
     if proposer == "manual":
         return pending_manual_proposal()
-    if proposer == "mock":
-        return solve_with_mock_agent(scenario)
     if proposer == "deepseek":
         return solve_with_deepseek_agent(scenario, observations)
-    raise ValueError("proposer must be 'manual', 'mock', or 'deepseek'")
+    raise ValueError("proposer must be 'manual' or 'deepseek'")
 
 
 def judge_proposal(
@@ -237,11 +295,9 @@ def judge_proposal(
     """调用 judge。"""
     if judge == "manual":
         return evaluate_manual(scenario, proposal)
-    if judge == "mock":
-        return evaluate_mock(scenario, proposal)
     if judge == "deepseek":
         return evaluate_deepseek(scenario, observations, proposal)
-    raise ValueError("judge must be 'manual', 'mock', or 'deepseek'")
+    raise ValueError("judge must be 'manual' or 'deepseek'")
 
 
 def build_summary(

@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from aiops_bench.llm.deepseek import chat_json
+from aiops_bench.llm.deepseek import build_agent_metadata, chat_json, read_model
 from aiops_bench.observability import render_observations_markdown
 
 
-SYSTEM_PROMPT = """你是一个 AIOps benchmark judge。
-你需要根据场景、现场证据、proposer 建议和动作约束进行评分。
+AGENT_ROLE = "evaluation_agent"
+
+SYSTEM_PROMPT = """你是 AIOps Benchmark 的“评估 Agent”。
+你需要独立审查场景、现场证据、建议 Agent 输出和动作约束，并给出可复核评分。
+你不能因为建议 Agent 自称正确就通过，必须用现场证据和动作契约判断。
 必须返回合法 JSON object，不要返回 Markdown。"""
 
 
@@ -42,8 +45,10 @@ def build_evaluation_prompt(
             "",
             "## 输出要求",
             "只返回 JSON object，字段为 type、status、score、summary、strengths、risks、contract_violations、recommendation。",
+            "summary、strengths、risks、contract_violations 等自然语言字段必须使用中文。",
             "status 必须是 passed 或 failed；score 必须是 0 到 1 的数字；recommendation 必须是 accept、revise 或 reject。",
             "如果故障 status 不是 active，需要在评分中指出实验注入未真实生效，不能把 CRD 创建成功等同于故障生效。",
+            "如果 proposer 违反只建议不执行、动作类型不在白名单、或证据不足，需要降低评分并列入 contract_violations 或 risks。",
         ]
     )
 
@@ -55,10 +60,23 @@ def evaluate_deepseek(
 ) -> dict[str, Any]:
     """调用 DeepSeek 对 proposal 评分。"""
     prompt = build_evaluation_prompt(scenario, observations, proposal)
-    evaluation = chat_json(system_prompt=SYSTEM_PROMPT, user_prompt=prompt)
+    model = read_model("AIOPS_DEEPSEEK_JUDGE_MODEL")
+    evaluation = chat_json(system_prompt=SYSTEM_PROMPT, user_prompt=prompt, model=model)
     evaluation["type"] = "deepseek"
+    evaluation["agent"] = build_agent_metadata(AGENT_ROLE, model)
+    normalize_evaluation(evaluation)
     validate_evaluation(evaluation)
     return evaluation
+
+
+def normalize_evaluation(evaluation: dict[str, Any]) -> None:
+    """容忍模型把列表字段返回成单个字符串。"""
+    for key in ("strengths", "risks", "contract_violations"):
+        value = evaluation.get(key)
+        if value is None:
+            evaluation[key] = []
+        elif isinstance(value, str):
+            evaluation[key] = [value]
 
 
 def validate_evaluation(evaluation: dict[str, Any]) -> None:

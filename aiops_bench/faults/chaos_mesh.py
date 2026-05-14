@@ -180,17 +180,25 @@ def parse_stresschaos_verification(result: dict[str, Any]) -> dict[str, Any]:
         if event["type"] == "Failed"
     ]
 
-    if conditions.get("AllInjected") == "True" or injected_count > 0:
+    if conditions.get("AllInjected") == "True":
         derived_status = "active"
+        status_reason = "Chaos Mesh condition AllInjected=True"
+    elif injected_count > 0:
+        derived_status = "active"
+        status_reason = "containerRecords show injected_count > 0"
     elif failed_messages:
         derived_status = "failed"
+        status_reason = "Chaos Mesh reported failed events"
     elif conditions.get("Selected") == "True":
         derived_status = "selected"
+        status_reason = "Chaos Mesh selected targets but injection is not confirmed yet"
     else:
         derived_status = "created"
+        status_reason = "StressChaos exists but injection is not confirmed yet"
 
     return {
         "status": derived_status,
+        "status_reason": status_reason,
         "failure_reason": failed_messages[0] if failed_messages else "",
         "conditions": conditions,
         "records": records,
