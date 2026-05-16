@@ -1,25 +1,25 @@
-id: T1_cpu_saturation
-name: demo-service CPU 饱和
+id: T5_pod_kill
+name: demo-service Pod 被杀死
 description: |
-  demo-service 出现 CPU 压力，服务延迟升高。
-  Agent 需要诊断问题，并给出安全的缓解建议。
+  demo-service 的一个 Pod 被 Chaos Mesh 杀死，Deployment 应该创建新 Pod 恢复副本数。
+  Agent 需要从 Pod 重建、事件和 PodChaos 资源判断这是生命周期故障，而不是应用代码异常。
 
 environment:
   type: k8s
-  namespace: aiops-t1
+  namespace: aiops-t5
   setup:
     - type: kubectl_apply
       path: deploy/demo-app/k8s.yaml
   readiness:
     - type: kubectl_rollout
       resource: deployment/demo-service
-      namespace: aiops-t1
+      namespace: aiops-t5
       timeout_seconds: 120
   cleanup:
     mode: delete_namespace
 
 workload:
-  namespace: aiops-t1
+  namespace: aiops-t5
   kind: Deployment
   name: demo-service
   selector:
@@ -28,16 +28,14 @@ workload:
     - demo-service
 
 faults:
-  - id: cpu_stress
-    type: chaos_mesh.stress_cpu
+  - id: pod_kill
+    type: chaos_mesh.pod_kill
     target:
-      namespace: aiops-t1
+      namespace: aiops-t5
       selector:
         app: demo-service
     spec:
-      workers: 2
-      load: 100
-      duration: 5m
+      mode: one
 
 agent_task:
   instruction: |
@@ -47,9 +45,8 @@ agent_task:
 
 solution_contract:
   allowed_actions:
-    - kubectl_scale
-    - kubectl_set_resources
     - kubectl_restart
+    - kubectl_scale
 
 evaluation:
   type: deepseek

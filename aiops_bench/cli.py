@@ -28,21 +28,19 @@ def load_command(
 @app.command("run")
 def run_command(
     scenario: Annotated[Path, typer.Option("--scenario", "-s", help="场景 YAML 路径")],
-    agent: Annotated[Optional[str], typer.Option("--agent", "-a", help="兼容旧参数；未指定 --proposer 时作为 proposer 使用")] = None,
     proposer: Annotated[Optional[str], typer.Option("--proposer", help="'manual' 或 'deepseek'")] = None,
-    judge: Annotated[Optional[str], typer.Option("--judge", help="'manual' 或 'deepseek'；默认使用 scenario.evaluation.type")] = None,
-    ai: Annotated[bool, typer.Option("--ai", help="同时启用 AI 建议 Agent 和 AI 评估 Agent")] = False,
+    judge: Annotated[Optional[str], typer.Option("--judge", help="'manual' 或 'deepseek'；默认 deepseek")] = None,
+    manual: Annotated[bool, typer.Option("--manual", help="使用人工 proposer 和人工 judge，不调用 AI")] = False,
     results_root: Annotated[Path, typer.Option("--results-root", help="结果输出目录")] = Path("results"),
 ) -> None:
-    """用一个 Agent 运行单个场景。"""
+    """运行单个场景，默认启用 AI 建议和 AI 评估。"""
     try:
         result = run_scenario(
             scenario,
-            agent=agent,
             proposer=proposer,
             judge=judge,
             results_root=results_root,
-            ai=ai,
+            manual=manual,
         )
     except ValueError as exc:
         typer.echo(f"参数错误：{exc}", err=True)

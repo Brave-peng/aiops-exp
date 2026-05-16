@@ -1,25 +1,25 @@
-id: T1_cpu_saturation
-name: demo-service CPU 饱和
+id: T2_memory_pressure
+name: demo-service 内存压力
 description: |
-  demo-service 出现 CPU 压力，服务延迟升高。
-  Agent 需要诊断问题，并给出安全的缓解建议。
+  demo-service 出现内存压力，可能导致响应变慢、Pod 内存使用率升高或接近限制。
+  Agent 需要结合资源指标和 Kubernetes 事件判断是否是内存类资源瓶颈。
 
 environment:
   type: k8s
-  namespace: aiops-t1
+  namespace: aiops-t2
   setup:
     - type: kubectl_apply
       path: deploy/demo-app/k8s.yaml
   readiness:
     - type: kubectl_rollout
       resource: deployment/demo-service
-      namespace: aiops-t1
+      namespace: aiops-t2
       timeout_seconds: 120
   cleanup:
     mode: delete_namespace
 
 workload:
-  namespace: aiops-t1
+  namespace: aiops-t2
   kind: Deployment
   name: demo-service
   selector:
@@ -28,15 +28,15 @@ workload:
     - demo-service
 
 faults:
-  - id: cpu_stress
-    type: chaos_mesh.stress_cpu
+  - id: memory_pressure
+    type: chaos_mesh.stress_memory
     target:
-      namespace: aiops-t1
+      namespace: aiops-t2
       selector:
         app: demo-service
     spec:
-      workers: 2
-      load: 100
+      workers: 1
+      size: 96MB
       duration: 5m
 
 agent_task:

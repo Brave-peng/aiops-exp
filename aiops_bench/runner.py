@@ -8,28 +8,26 @@ from aiops_bench.agents.manual import build_agent_prompt, pending_manual_proposa
 from aiops_bench.environment.k8s import cleanup_environment, setup_environment
 from aiops_bench.evaluators.deepseek import build_evaluation_prompt, evaluate_deepseek
 from aiops_bench.evaluators.manual import evaluate_manual
-from aiops_bench.faults.chaos_mesh import cleanup_faults, inject_faults
-from aiops_bench.observability import collect_observations, render_observations_markdown
+from aiops_bench.faults.manager import cleanup_faults, inject_faults
+from aiops_bench.observability import collect_observations
 from aiops_bench.results.writer import build_run_artifact, create_run_dir, write_json, write_report, write_run_files
-from aiops_bench.scenario import load_scenario
+from aiops_bench.scenario import load_scenario_context
 
 
 def run_scenario(
     scenario_path: str | Path,
-    agent: str | None = None,
     proposer: str | None = None,
     judge: str | None = None,
     results_root: str | Path = "results",
-    ai: bool = False,
+    manual: bool = False,
 ) -> dict[str, Any]:
     """运行一个场景。"""
-    scenario = load_scenario(scenario_path)
+    scenario_context = load_scenario_context(scenario_path)
+    scenario = scenario_context.data
     proposer_name, judge_name = resolve_participants(
-        scenario,
-        agent=agent,
         proposer=proposer,
         judge=judge,
-        ai=ai,
+        manual=manual,
     )
     validate_participants(proposer_name, judge_name)
     run_dir = create_run_dir(scenario["id"], results_root)
@@ -37,7 +35,6 @@ def run_scenario(
     environment_result: dict[str, Any] | None = None
     fault_handles: list[dict[str, Any]] = []
     observations: dict[str, Any] = {"status": "not_collected", "commands": []}
-    observations_markdown = "# Kubernetes 观测\n\n未采集观测。\n"
     fault_cleanup: list[dict[str, Any]] = []
     environment_cleanup: dict[str, Any] | None = None
     agent_prompt = ""
@@ -47,10 +44,9 @@ def run_scenario(
     summary: dict[str, Any] | None = None
 
     try:
-        environment_result = setup_environment(scenario["environment"])
+        environment_result = setup_environment(scenario["environment"], path_resolver=scenario_context.resolve_path)
         fault_handles = inject_faults(scenario["faults"])
         observations = collect_observations(scenario, fault_handles)
-        observations_markdown = render_observations_markdown(observations)
         agent_prompt = build_proposal_prompt(proposer_name, scenario, observations)
         inactive_faults = [fault for fault in fault_handles if fault.get("status") != "active"]
         if inactive_faults:
@@ -83,7 +79,6 @@ def run_scenario(
                 agent_prompt,
                 evaluation_prompt,
                 observations,
-                observations_markdown,
                 proposal,
                 evaluation,
                 summary,
@@ -117,7 +112,6 @@ def run_scenario(
                 agent_prompt,
                 evaluation_prompt,
                 observations,
-                observations_markdown,
                 proposal,
                 evaluation,
                 summary,
@@ -147,7 +141,6 @@ def run_scenario(
                 agent_prompt,
                 evaluation_prompt,
                 observations,
-                observations_markdown,
                 proposal,
                 evaluation,
                 summary,
@@ -171,7 +164,6 @@ def run_scenario(
             agent_prompt,
             evaluation_prompt,
             observations,
-            observations_markdown,
             proposal,
             evaluation,
             summary,
@@ -229,7 +221,6 @@ def run_scenario(
                     observations,
                     cleanup=cleanup_summary,
                     agent_prompt=agent_prompt,
-                    observations_markdown=observations_markdown,
                 )
             write_json(run_dir / "cleanup.json", cleanup_summary)
 
@@ -248,11 +239,8 @@ def summarize_cleanup_status(cleanup_summary: dict[str, Any]) -> str:
 
 
 def validate_participants(proposer: str, judge: str) -> None:
-    """校验 proposer/judge；mock 已停用，避免生成伪造通过结果。"""
+    """校验 proposer/judge。"""
     allowed = {"manual", "deepseek"}
-    disabled = {"mock"}
-    if proposer in disabled or judge in disabled:
-        raise ValueError("mock proposer/judge 已停用，请使用 'manual' 或 'deepseek'")
     if proposer not in allowed:
         raise ValueError("proposer must be 'manual' or 'deepseek'")
     if judge not in allowed:
@@ -260,17 +248,15 @@ def validate_participants(proposer: str, judge: str) -> None:
 
 
 def resolve_participants(
-    scenario: dict[str, Any],
     *,
-    agent: str | None,
     proposer: str | None,
     judge: str | None,
-    ai: bool,
+    manual: bool,
 ) -> tuple[str, str]:
-    """解析 proposer/judge；--ai 同时启用两个 AI Agent。"""
-    if ai:
-        return proposer or "deepseek", judge or "deepseek"
-    return proposer or agent or "manual", judge or scenario["evaluation"]["type"]
+    """解析 proposer/judge；默认启用 AI 评测。"""
+    if manual:
+        return proposer or "manual", judge or "manual"
+    return proposer or "deepseek", judge or "deepseek"
 
 
 def build_proposal_prompt(
@@ -410,14 +396,12 @@ def write_run_failure(
     except Exception:
         agent_prompt = build_agent_prompt(scenario)
     evaluation_prompt = build_evaluation_prompt(scenario, observations, proposal)
-    observations_markdown = render_observations_markdown(observations)
     write_run_files(
         run_dir,
         scenario,
         agent_prompt,
         evaluation_prompt,
         observations,
-        observations_markdown,
         proposal,
         evaluation,
         summary,

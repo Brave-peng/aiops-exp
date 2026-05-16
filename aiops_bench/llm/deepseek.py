@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import urllib.error
 import urllib.request
 from typing import Any
@@ -92,7 +93,7 @@ def read_model(specific_env_name: str | None = None) -> str:
         names.append(specific_env_name)
     names.extend(["AIOPS_DEEPSEEK_MODEL", "DEEPSEEK_MODEL"])
     for name in names:
-        value = os.environ.get(name)
+        value = read_config_value(name)
         if value:
             return value
     return DEFAULT_MODEL
@@ -100,12 +101,12 @@ def read_model(specific_env_name: str | None = None) -> str:
 
 def read_base_url() -> str:
     """读取 DeepSeek OpenAI-compatible base_url。"""
-    return os.environ.get("DEEPSEEK_BASE_URL") or os.environ.get("AIOPS_DEEPSEEK_BASE_URL") or DEFAULT_BASE_URL
+    return read_config_value("DEEPSEEK_BASE_URL") or read_config_value("AIOPS_DEEPSEEK_BASE_URL") or DEFAULT_BASE_URL
 
 
 def read_timeout_seconds() -> int:
     """读取 API 超时时间。"""
-    value = os.environ.get("AIOPS_DEEPSEEK_TIMEOUT_SECONDS") or os.environ.get("DEEPSEEK_TIMEOUT_SECONDS")
+    value = read_config_value("AIOPS_DEEPSEEK_TIMEOUT_SECONDS") or read_config_value("DEEPSEEK_TIMEOUT_SECONDS")
     if not value:
         return DEFAULT_TIMEOUT_SECONDS
     try:
@@ -116,10 +117,43 @@ def read_timeout_seconds() -> int:
 
 def _read_api_key() -> str:
     for name in ("ak-deepseek", "ak_deepseek", "AK_DEEPSEEK", "DEEPSEEK_API_KEY"):
-        value = os.environ.get(name)
+        value = read_config_value(name)
         if value:
             return value
-    raise DeepSeekError("DeepSeek API key is missing from environment")
+    raise DeepSeekError("DeepSeek API key is missing; set DEEPSEEK_API_KEY in the environment or .env")
+
+
+def read_config_value(name: str) -> str | None:
+    """读取环境变量，缺失时从 .env 读取。"""
+    return os.environ.get(name) or read_dotenv().get(name)
+
+
+def read_dotenv() -> dict[str, str]:
+    """读取最近的 .env 文件。"""
+    env_path = find_dotenv()
+    if env_path is None:
+        return {}
+    values: dict[str, str] = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        values[key] = value.strip().strip('"').strip("'")
+    return values
+
+
+def find_dotenv() -> Path | None:
+    """从当前目录向上寻找 .env。"""
+    start = Path.cwd().resolve()
+    for candidate in [start, *start.parents]:
+        env_path = candidate / ".env"
+        if env_path.is_file():
+            return env_path
+    return None
 
 
 def _parse_fenced_json(content: str, original: json.JSONDecodeError) -> dict[str, Any]:

@@ -1,25 +1,25 @@
-id: T1_cpu_saturation
-name: demo-service CPU 饱和
+id: T3_network_delay
+name: demo-service 网络延迟
 description: |
-  demo-service 出现 CPU 压力，服务延迟升高。
-  Agent 需要诊断问题，并给出安全的缓解建议。
+  demo-service 所在 Pod 被注入网络延迟，服务访问可能变慢但容器本身仍保持运行。
+  Agent 需要区分网络链路异常和 CPU、内存等本地资源瓶颈。
 
 environment:
   type: k8s
-  namespace: aiops-t1
+  namespace: aiops-t3
   setup:
     - type: kubectl_apply
       path: deploy/demo-app/k8s.yaml
   readiness:
     - type: kubectl_rollout
       resource: deployment/demo-service
-      namespace: aiops-t1
+      namespace: aiops-t3
       timeout_seconds: 120
   cleanup:
     mode: delete_namespace
 
 workload:
-  namespace: aiops-t1
+  namespace: aiops-t3
   kind: Deployment
   name: demo-service
   selector:
@@ -28,15 +28,17 @@ workload:
     - demo-service
 
 faults:
-  - id: cpu_stress
-    type: chaos_mesh.stress_cpu
+  - id: network_delay
+    type: chaos_mesh.network_delay
     target:
-      namespace: aiops-t1
+      namespace: aiops-t3
       selector:
         app: demo-service
     spec:
-      workers: 2
-      load: 100
+      mode: one
+      latency: 500ms
+      jitter: 50ms
+      correlation: "25"
       duration: 5m
 
 agent_task:

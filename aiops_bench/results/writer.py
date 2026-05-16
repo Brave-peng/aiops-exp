@@ -4,13 +4,16 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import yaml
+
+from aiops_bench.scenario import get_workload
 
 
 def create_run_dir(scenario_id: str, results_root: str | Path = "results") -> Path:
     """创建本次实验的结果目录。"""
-    run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_id = datetime.now().strftime("%Y%m%d-%H%M%S-%f") + f"-{uuid4().hex[:8]}"
     run_dir = Path(results_root) / scenario_id / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
@@ -22,7 +25,6 @@ def write_run_files(
     agent_prompt: str,
     evaluation_prompt: str,
     observations: dict[str, Any],
-    observations_markdown: str,
     proposal: dict[str, Any],
     evaluation: dict[str, Any],
     summary: dict[str, Any],
@@ -42,7 +44,6 @@ def write_run_files(
         evaluation,
         observations,
         agent_prompt=agent_prompt,
-        observations_markdown=observations_markdown,
     )
 
 
@@ -74,9 +75,9 @@ def write_report(
     *,
     cleanup: dict[str, Any] | None = None,
     agent_prompt: str = "",
-    observations_markdown: str = "",
 ) -> None:
     """写入中文优先的人类可读报告。"""
+    workload = get_workload(scenario)
     lines = [
         f"# 运行报告：{scenario['id']}",
         "",
@@ -87,6 +88,7 @@ def write_report(
         f"- 运行目录：`{summary.get('run_dir', run_dir)}`",
         f"- Proposer：`{summary.get('proposer', '')}`",
         f"- Judge：`{summary.get('judge', '')}`",
+        f"- Workload：`{workload['namespace']}/{workload['kind'].lower()}/{workload['name']}`",
         "",
         "## 阶段状态",
         "",

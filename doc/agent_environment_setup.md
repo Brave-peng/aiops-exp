@@ -14,6 +14,8 @@
 export DEEPSEEK_API_KEY=...
 ```
 
+也可以在仓库根目录创建 `.env`，参考 `.env.example`。
+
 可选模型覆盖：
 
 ```bash
@@ -114,16 +116,16 @@ minikube image ls | grep demo-app
 
 ## 运行 benchmark
 
-默认人工模式：
+默认运行 DeepSeek 建议 Agent + DeepSeek 评估 Agent：
 
 ```bash
 uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml
 ```
 
-AI 建议 Agent + AI 评估 Agent：
+人工模式只做环境、故障、观测和清理，不调用 AI：
 
 ```bash
-uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --ai
+uv run aiops-bench run --scenario scenarios/T1_cpu_saturation.yaml --manual
 ```
 
 成功时 CLI 摘要类似：

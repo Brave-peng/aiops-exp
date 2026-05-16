@@ -17,6 +17,10 @@ ACTION_CONTRACTS: dict[str, dict[str, Any]] = {
         "required": ["namespace", "deployment"],
         "description": "namespace、deployment",
     },
+    "kubectl_set_env": {
+        "required": ["namespace", "deployment", "env"],
+        "description": "namespace、deployment、env 字典",
+    },
 }
 
 
@@ -59,6 +63,8 @@ def normalize_action(action: dict[str, Any]) -> dict[str, Any]:
     resource = params.get("resource") or params.get("name")
     if isinstance(resource, str) and resource.startswith("deployment/") and "deployment" not in params:
         params["deployment"] = resource.split("/", 1)[1]
+    if action.get("type") == "kubectl_set_env" and isinstance(params.get("env"), dict):
+        params["env"] = {key: "" if value is None else value for key, value in params["env"].items()}
     return action
 
 
@@ -73,6 +79,8 @@ def validate_action_params(index: int, action: dict[str, Any]) -> None:
     for name in contract.get("required", []):
         if name == "replicas":
             require_non_negative_int_param(index, params, name)
+        elif name == "env":
+            require_string_dict_param(index, params, name)
         else:
             require_string_param(index, params, name)
 
@@ -92,3 +100,15 @@ def require_non_negative_int_param(index: int, params: dict[str, Any], name: str
     """校验非负整数参数。"""
     if not isinstance(params.get(name), int) or params[name] < 0:
         raise ValueError(f"proposal.proposed_actions[{index}].params.{name} must be a non-negative integer")
+
+
+def require_string_dict_param(index: int, params: dict[str, Any], name: str) -> None:
+    """校验字符串字典参数。"""
+    value = params.get(name)
+    if not isinstance(value, dict) or not value:
+        raise ValueError(f"proposal.proposed_actions[{index}].params.{name} must be a non-empty object")
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip() or not isinstance(item, str):
+            raise ValueError(
+                f"proposal.proposed_actions[{index}].params.{name} must only contain string keys and values"
+            )

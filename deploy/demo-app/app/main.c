@@ -41,6 +41,37 @@ static void cpu_work(int duration_ms) {
     }
 }
 
+static int bug_mode_enabled(void) {
+    const char *mode = getenv("BUG_MODE");
+    return mode != NULL && strcmp(mode, "bad_parameter") == 0;
+}
+
+static void maybe_emit_code_fault(int force) {
+    if (!force && !bug_mode_enabled()) {
+        return;
+    }
+    fprintf(
+        stderr,
+        "ERROR code_fault=bad_parameter root_cause_indicator=stack_trace "
+        "message=\"incorrect parameter values in demo-service\"\n"
+    );
+    fflush(stderr);
+}
+
+static void maybe_emit_config_fault(void) {
+    const char *url = getenv("DOWNSTREAM_URL");
+    if (url == NULL || strstr(url, "missing-dependency") == NULL) {
+        return;
+    }
+    fprintf(
+        stderr,
+        "ERROR config_fault=bad_downstream_url root_cause_indicator=misconfiguration "
+        "downstream_url=%s message=\"configured downstream service is unreachable\"\n",
+        url
+    );
+    fflush(stderr);
+}
+
 static void respond(int fd, int status, const char *message) {
     char body[512];
     int body_len = snprintf(
@@ -86,7 +117,14 @@ static void handle_client(int fd) {
         return;
     }
     if (strcmp(path, "/readyz") == 0) {
+        maybe_emit_code_fault(0);
+        maybe_emit_config_fault();
         respond(fd, 200, "ready");
+        return;
+    }
+    if (strcmp(path, "/bug") == 0) {
+        maybe_emit_code_fault(1);
+        respond(fd, 500, "code exception");
         return;
     }
     if (strncmp(path, "/work", 5) == 0) {

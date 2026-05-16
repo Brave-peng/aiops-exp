@@ -4,11 +4,13 @@ import json
 from typing import Any
 
 from aiops_bench.actions import render_action_contract
+from aiops_bench.scenario import get_workload
 
 
 def build_agent_prompt(scenario: dict[str, Any]) -> str:
     """根据场景生成给 Agent 的作答提示词。"""
     environment = scenario["environment"]
+    workload = get_workload(scenario)
     allowed_actions = scenario["solution_contract"]["allowed_actions"]
 
     lines = [
@@ -20,6 +22,12 @@ def build_agent_prompt(scenario: dict[str, Any]) -> str:
         "## 测试环境",
         f"- 类型：{environment['type']}",
         f"- namespace：{environment['namespace']}",
+        "",
+        "## 目标 Workload",
+        f"- 资源：{workload['kind'].lower()}/{workload['name']}",
+        f"- namespace：{workload['namespace']}",
+        f"- selector：{json.dumps(workload['selector'], ensure_ascii=False)}",
+        f"- containers：{json.dumps(workload['containers'], ensure_ascii=False)}",
         "",
         "## 已注入故障",
     ]

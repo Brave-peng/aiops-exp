@@ -1,25 +1,25 @@
-id: T1_cpu_saturation
-name: demo-service CPU 饱和
+id: T4_network_loss
+name: demo-service 网络丢包
 description: |
-  demo-service 出现 CPU 压力，服务延迟升高。
-  Agent 需要诊断问题，并给出安全的缓解建议。
+  demo-service 所在 Pod 被注入网络丢包，服务访问可能出现间歇性失败或超时。
+  Agent 需要结合 NetworkChaos 资源、Pod 状态和资源指标，区分网络质量问题与应用崩溃。
 
 environment:
   type: k8s
-  namespace: aiops-t1
+  namespace: aiops-t4
   setup:
     - type: kubectl_apply
       path: deploy/demo-app/k8s.yaml
   readiness:
     - type: kubectl_rollout
       resource: deployment/demo-service
-      namespace: aiops-t1
+      namespace: aiops-t4
       timeout_seconds: 120
   cleanup:
     mode: delete_namespace
 
 workload:
-  namespace: aiops-t1
+  namespace: aiops-t4
   kind: Deployment
   name: demo-service
   selector:
@@ -28,15 +28,16 @@ workload:
     - demo-service
 
 faults:
-  - id: cpu_stress
-    type: chaos_mesh.stress_cpu
+  - id: network_loss
+    type: chaos_mesh.network_loss
     target:
-      namespace: aiops-t1
+      namespace: aiops-t4
       selector:
         app: demo-service
     spec:
-      workers: 2
-      load: 100
+      mode: one
+      loss: "35"
+      correlation: "25"
       duration: 5m
 
 agent_task:
@@ -47,8 +48,6 @@ agent_task:
 
 solution_contract:
   allowed_actions:
-    - kubectl_scale
-    - kubectl_set_resources
     - kubectl_restart
 
 evaluation:

@@ -11,8 +11,9 @@ class ActionContractTest(unittest.TestCase):
             "solution_contract": {
                 "allowed_actions": [
                     "kubectl_scale",
-                    "kubectl_set_resources",
-                    "kubectl_restart",
+                "kubectl_set_resources",
+                "kubectl_restart",
+                "kubectl_set_env",
                 ],
             },
         }
@@ -40,6 +41,42 @@ class ActionContractTest(unittest.TestCase):
         }
 
         validate_proposal_actions(self.scenario, proposal)
+
+    def test_validate_set_env_action(self) -> None:
+        proposal = {
+            "proposed_actions": [
+                {
+                    "type": "kubectl_set_env",
+                    "params": {
+                        "namespace": "aiops-t6",
+                        "deployment": "demo-service",
+                        "env": {"DOWNSTREAM_URL": ""},
+                    },
+                    "reason": "回滚错误的下游地址配置。",
+                }
+            ],
+        }
+
+        validate_proposal_actions(self.scenario, proposal)
+
+    def test_validate_set_env_normalizes_null_to_empty_string(self) -> None:
+        proposal = {
+            "proposed_actions": [
+                {
+                    "type": "kubectl_set_env",
+                    "params": {
+                        "namespace": "aiops-t6",
+                        "deployment": "demo-service",
+                        "env": {"DOWNSTREAM_URL": None},
+                    },
+                    "reason": "清空错误的下游地址配置。",
+                }
+            ],
+        }
+
+        validate_proposal_actions(self.scenario, proposal)
+
+        self.assertEqual(proposal["proposed_actions"][0]["params"]["env"], {"DOWNSTREAM_URL": ""})
 
     def test_normalizes_deployment_resource_name(self) -> None:
         proposal = {

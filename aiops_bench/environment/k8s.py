@@ -3,15 +3,19 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from typing import Any
+from typing import Callable
 
 
-def setup_environment(environment: dict[str, Any]) -> dict[str, Any]:
+PathResolver = Callable[[str | Path], Path]
+
+
+def setup_environment(environment: dict[str, Any], path_resolver: PathResolver | None = None) -> dict[str, Any]:
     """创建测试环境。"""
     namespace = environment["namespace"]
     ensure_kubernetes_context()
     ensure_namespace(namespace)
 
-    setup_results = [run_setup_step(step, namespace) for step in environment["setup"]]
+    setup_results = [run_setup_step(step, namespace, path_resolver=path_resolver) for step in environment["setup"]]
     readiness_results = [run_readiness_step(step, namespace) for step in environment["readiness"]]
 
     return {
@@ -75,13 +79,17 @@ def ensure_namespace(namespace: str) -> None:
     run_kubectl(["create", "namespace", namespace])
 
 
-def run_setup_step(step: dict[str, Any], namespace: str) -> dict[str, Any]:
+def run_setup_step(
+    step: dict[str, Any],
+    namespace: str,
+    path_resolver: PathResolver | None = None,
+) -> dict[str, Any]:
     """执行一个环境 setup 步骤。"""
     step_type = step.get("type")
     if step_type != "kubectl_apply":
         raise ValueError(f"unsupported environment setup step: {step_type}")
 
-    manifest_path = Path(step["path"])
+    manifest_path = path_resolver(step["path"]) if path_resolver else Path(step["path"])
     if not manifest_path.is_file():
         raise FileNotFoundError(f"manifest not found: {manifest_path}")
 

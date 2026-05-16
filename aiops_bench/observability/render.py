@@ -2,61 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from aiops_bench.environment.k8s import run_kubectl
-
-
-def collect_observations(scenario: dict[str, Any], fault_handles: list[dict[str, Any]]) -> dict[str, Any]:
-    """采集一组只读 Kubernetes 现场快照，供 proposer 和 judge 使用。"""
-    namespace = scenario["environment"]["namespace"]
-    commands = [
-        ["get", "deploy,po,svc", "-n", namespace, "-o", "wide"],
-        ["describe", "deployment/demo-service", "-n", namespace],
-        ["logs", "deployment/demo-service", "-n", namespace, "--tail=100"],
-        ["top", "pod", "-n", namespace],
-    ]
-    for handle in fault_handles:
-        if handle.get("type") == "chaos_mesh.stress_cpu":
-            commands.extend(
-                [
-                    ["get", "stresschaos", handle["name"], "-n", handle["namespace"], "-o", "yaml"],
-                    ["describe", "stresschaos", handle["name"], "-n", handle["namespace"]],
-                ]
-            )
-
-    return {
-        "namespace": namespace,
-        "summary": build_observation_summary(namespace, fault_handles),
-        "commands": [
-            {
-                "command": result["command"],
-                "returncode": result["returncode"],
-                "stdout": result["stdout"],
-                "stderr": result["stderr"],
-            }
-            for result in (run_kubectl(args, check=False) for args in commands)
-        ],
-    }
-
-
-def build_observation_summary(namespace: str, fault_handles: list[dict[str, Any]]) -> dict[str, Any]:
-    """构造机器可读摘要，避免 judge 从长 YAML 里猜关键状态。"""
-    return {
-        "namespace": namespace,
-        "faults": [
-            {
-                "id": handle.get("id"),
-                "type": handle.get("type"),
-                "name": handle.get("name"),
-                "namespace": handle.get("namespace"),
-                "status": handle.get("status"),
-                "status_reason": handle.get("verification", {}).get("status_reason", ""),
-                "failure_reason": handle.get("verification", {}).get("failure_reason", ""),
-                "conditions": handle.get("verification", {}).get("conditions", {}),
-                "records": handle.get("verification", {}).get("records", []),
-            }
-            for handle in fault_handles
-        ],
-    }
+from aiops_bench.observability.kubernetes import trim_text
 
 
 def render_observations_markdown(observations: dict[str, Any]) -> str:
@@ -69,6 +15,19 @@ def render_observations_markdown(observations: dict[str, Any]) -> str:
         "## 摘要",
         "",
     ]
+
+    workload = observations.get("summary", {}).get("workload") or {}
+    if workload:
+        lines.extend(
+            [
+                "### Workload",
+                "",
+                f"- resource: `{str(workload.get('kind', '')).lower()}/{workload.get('name', '')}`",
+                f"- namespace: `{workload.get('namespace', '')}`",
+                f"- selector: `{workload.get('selector', {})}`",
+                "",
+            ]
+        )
 
     faults = observations.get("summary", {}).get("faults", [])
     if faults:
@@ -111,6 +70,26 @@ def render_observations_markdown(observations: dict[str, Any]) -> str:
     else:
         lines.extend(["未采集到故障摘要。", ""])
 
+    evidence_items = observations.get("evidence_items", [])
+    if evidence_items:
+        lines.extend(["## 标准化证据", ""])
+        for item in evidence_items[:30]:
+            lines.extend(
+                [
+                    f"### `{item.get('id', '')}`",
+                    "",
+                    f"- source: `{item.get('source', '')}`",
+                    f"- signal_type: `{item.get('signal_type', '')}`",
+                    f"- subject: `{item.get('subject', '')}`",
+                    f"- summary: {trim_text(item.get('summary') or '<none>', 600)}",
+                    f"- raw_ref: `{item.get('raw_ref', '')}`",
+                    f"- confidence: `{item.get('confidence', '')}`",
+                    "",
+                ]
+            )
+        if len(evidence_items) > 30:
+            lines.extend([f"... 还有 {len(evidence_items) - 30} 条证据，详见 observations.json", ""])
+
     lines.extend(["## 命令输出", ""])
     for item in observations.get("commands", []):
         command = " ".join(item["command"])
@@ -141,11 +120,3 @@ def trim_command_output(value: str, max_lines: int = 120, max_chars: int = 12000
     if truncated:
         trimmed += "\n... <truncated; see observations.json for full output>"
     return trimmed
-
-
-def trim_text(value: str, max_chars: int) -> str:
-    """限制摘要里的单行长错误。"""
-    value = " ".join(value.split())
-    if len(value) <= max_chars:
-        return value
-    return value[:max_chars].rstrip() + "..."

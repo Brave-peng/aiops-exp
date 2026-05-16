@@ -31,6 +31,8 @@ class DemoHandler(BaseHTTPRequestHandler):
             self.write_json(HTTPStatus.OK, base_response("healthy"))
             return
         if parsed.path == "/readyz":
+            maybe_emit_code_fault()
+            maybe_emit_config_fault()
             self.write_json(HTTPStatus.OK, base_response("ready"))
             return
         if parsed.path == "/config":
@@ -39,8 +41,13 @@ class DemoHandler(BaseHTTPRequestHandler):
                 "SERVICE_NAME": getenv("SERVICE_NAME", "demo-service"),
                 "DOWNSTREAM_URL": getenv("DOWNSTREAM_URL", ""),
                 "PORT": getenv("PORT", "8080"),
+                "BUG_MODE": getenv("BUG_MODE", ""),
             }
             self.write_json(HTTPStatus.OK, response)
+            return
+        if parsed.path == "/bug":
+            maybe_emit_code_fault(force=True)
+            self.write_json(HTTPStatus.INTERNAL_SERVER_ERROR, base_response("code exception"))
             return
         if parsed.path == "/work":
             query = parse_qs(parsed.query)
@@ -125,6 +132,39 @@ def int_query(query: dict[str, list[str]], key: str, fallback: int) -> int:
     if value < 0:
         return fallback
     return min(value, 30_000)
+
+
+def maybe_emit_code_fault(force: bool = False) -> None:
+    """在代码异常场景下输出稳定的根因信号。"""
+    if getenv("BUG_MODE", "") != "bad_parameter" and not force:
+        return
+    try:
+        parse_positive_int("not-a-number")
+    except ValueError:
+        logger.exception(
+            "code_fault=bad_parameter root_cause_indicator=stack_trace "
+            "message='incorrect parameter values in demo-service'"
+        )
+
+
+def maybe_emit_config_fault() -> None:
+    """在错误下游配置场景下输出稳定的配置异常信号。"""
+    downstream_url = getenv("DOWNSTREAM_URL", "")
+    if not downstream_url or "missing-dependency" not in downstream_url:
+        return
+    logger.error(
+        "config_fault=bad_downstream_url root_cause_indicator=misconfiguration "
+        "downstream_url=%s message='configured downstream service is unreachable'",
+        downstream_url,
+    )
+
+
+def parse_positive_int(raw: str) -> int:
+    """解析正整数；用于演示代码级参数错误。"""
+    value = int(raw)
+    if value <= 0:
+        raise ValueError("value must be positive")
+    return value
 
 
 def do_cpu_work(duration_ms: int) -> None:

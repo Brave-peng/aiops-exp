@@ -1,25 +1,25 @@
-id: T1_cpu_saturation
-name: demo-service CPU 饱和
+id: T8_code_exception
+name: demo-service 代码异常
 description: |
-  demo-service 出现 CPU 压力，服务延迟升高。
-  Agent 需要诊断问题，并给出安全的缓解建议。
+  demo-service 被切换到错误参数模式，应用日志会出现稳定的代码级异常信号。
+  Agent 需要优先从 logs 中识别 stack trace、错误参数等代码缺陷线索，而不是误判为资源不足。
 
 environment:
   type: k8s
-  namespace: aiops-t1
+  namespace: aiops-t8
   setup:
     - type: kubectl_apply
       path: deploy/demo-app/k8s.yaml
   readiness:
     - type: kubectl_rollout
       resource: deployment/demo-service
-      namespace: aiops-t1
+      namespace: aiops-t8
       timeout_seconds: 120
   cleanup:
     mode: delete_namespace
 
 workload:
-  namespace: aiops-t1
+  namespace: aiops-t8
   kind: Deployment
   name: demo-service
   selector:
@@ -28,16 +28,15 @@ workload:
     - demo-service
 
 faults:
-  - id: cpu_stress
-    type: chaos_mesh.stress_cpu
+  - id: bad_parameter_code_fault
+    type: k8s.set_env
     target:
-      namespace: aiops-t1
-      selector:
-        app: demo-service
+      namespace: aiops-t8
+      deployment: demo-service
     spec:
-      workers: 2
-      load: 100
-      duration: 5m
+      env:
+        BUG_MODE: bad_parameter
+      timeout_seconds: 120
 
 agent_task:
   instruction: |
@@ -47,8 +46,7 @@ agent_task:
 
 solution_contract:
   allowed_actions:
-    - kubectl_scale
-    - kubectl_set_resources
+    - kubectl_set_env
     - kubectl_restart
 
 evaluation:
